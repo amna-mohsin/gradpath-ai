@@ -5,7 +5,7 @@ OOAD notes
 - Composition : Student -> CareerGoal -> GoalTask (children are deleted with their parent).
 - Association : Student 1..* PlacementPrediction, Job *..1 CareerOfficer (creator).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
@@ -19,7 +19,7 @@ def split_csv(value: Optional[str]) -> List[str]:
 
 def utcnow() -> datetime:
     """Provide the UTC timestamp used as the default for persisted records."""
-    return datetime.utcnow()
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Base(DeclarativeBase):

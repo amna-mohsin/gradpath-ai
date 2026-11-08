@@ -179,22 +179,32 @@ The readiness estimate can use the bundled model artifact or the built-in rule-b
 ### Train with a placement CSV
 
 1. Obtain a placement dataset whose license permits your use, and save it as `ml/data/placement.csv`. The trainer accepts common column-name aliases; review `ALIASES` in `ml/train_model.py` if your CSV uses different names.
-2. Run the full training workflow:
+2. Run the full training workflow. It tunes all three candidate models; the full run may take several minutes:
 
    ```bash
    python -m ml.train_model --data ml/data/placement.csv
    ```
 
-   Add `--fast` to skip hyperparameter search. To generate a clearly labeled practice model instead:
+   Add `--fast` to skip hyperparameter search, or `--iters 8` to try fewer parameter settings per model. To generate a clearly labeled practice model instead:
 
    ```bash
    python -m ml.train_model --synthetic
    ```
 
-3. The trainer creates an 80/20 stratified split, tunes Random Forest and Gradient Boosting on training data, selects by cross-validated ROC-AUC, calibrates probabilities, selects an F1 threshold using out-of-fold predictions, and evaluates once on the held-out test set.
+   To compare the current five inputs with selected optional numeric columns in the CSV, run:
+
+   ```bash
+   python -m ml.train_model --data ml/data/placement.csv --compare-features
+   ```
+
+   This diagnostic does not change the model's features. In particular, IQ is sensitive personal information and must not be collected or used for student placement decisions.
+
+3. The trainer creates an 80/20 stratified split, tunes Logistic Regression, Random Forest, and monotonic Gradient Boosting on training data, and selects using cross-validated ROC-AUC with a modest penalty for a large training/validation gap. The monotonic model constrains increases to the five model inputs not to lower its raw predicted score. It calibrates probabilities, selects an F1 threshold using out-of-fold predictions, and evaluates once on the untouched test set.
 4. Training writes the model and metrics under `ml/artifacts/`. The app uses the saved model when available; the metrics support the model-insights page.
 
 Evaluate more than accuracy: consider ROC-AUC, precision, recall, F1, calibration, and the observed placement rates for each readiness category. Dataset quality and representativeness matter. The bundled synthetic-data model is for practice and demonstration, not evidence of real-world placement performance.
+
+After training, run `python -m ml.sanity_check` to probe example profiles, changes to individual inputs, and extreme profiles against the saved model. These are behavior checks only; passing them does not establish accuracy on real students.
 
 ## 💬 Career Assistant
 

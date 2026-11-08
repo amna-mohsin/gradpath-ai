@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from core.models import Base, Job
 from core.repositories import JobRepository
 from core.validators import (check_email, check_name, check_password, check_phone, check_url)
+from ml.train_model import build_models, fit_verdict
 from services.application_service import ApplicationService, fit_label
 from services.chatbot_service import ChatbotFactory, LLMBot
 from services.job_service import JobService
@@ -59,6 +60,22 @@ def test_categories():
     assert categorize(55) == "Developing"
     assert categorize(90) == "Job Ready"
     assert categorize(30, (20, 40)) == "Developing"
+
+
+def test_training_candidates_and_fit_diagnostics():
+    """Keep all three model candidates available and classify common fit patterns."""
+    candidates = build_models()
+    assert set(candidates) == {
+        "Logistic Regression", "Random Forest", "Gradient Boosting (monotonic)"
+    }
+    assert all(grid for _, grid in candidates.values())
+    assert "poly__degree" in candidates["Logistic Regression"][1]
+    monotonic_pipeline, monotonic_grid = candidates["Gradient Boosting (monotonic)"]
+    assert monotonic_pipeline.named_steps["clf"].monotonic_cst == [1] * 5
+    assert "clf__max_iter" in monotonic_grid
+    assert fit_verdict(0.82, 0.81).startswith("Good fit")
+    assert fit_verdict(0.95, 0.80).startswith("Possible overfit")
+    assert fit_verdict(0.68, 0.66).startswith("Possible underfit")
 
 
 def test_skill_gap_and_resume():

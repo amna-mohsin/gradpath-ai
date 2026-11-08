@@ -108,5 +108,4 @@ def render():
     m = load_metrics()
     if res.is_ml and m:
         st.caption(f"Model trained on '{m['data_source']}' | test ROC-AUC {m['roc_auc']:.2f}")
-    html('<div class="gp-footer">Statistical estimate from a Random Forest model trained on \'Kaggle CSV (placement.csv)\' '
-         '(hold-out ROC-AUC 0.93). It reflects patterns in historical data, not your individual future, and does not guarantee employment.</div>')
+    html(f'<div class="gp-footer">{esc(res.notice)}</div>')

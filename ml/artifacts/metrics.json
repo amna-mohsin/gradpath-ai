@@ -1,46 +1,73 @@
 {
-  "model_name": "Random Forest",
+  "trainer_version": 2,
+  "model_name": "Gradient Boosting (monotonic)",
   "data_source": "Kaggle CSV (placement.csv)",
   "n_rows": 10000,
   "n_train": 8000,
   "n_test": 2000,
   "placement_rate": 0.1659,
   "tuned": true,
-  "decision_threshold": 0.4092,
+  "decision_threshold": 0.231,
   "thresholds": {
-    "developing": 16.6,
-    "job_ready": 40.9
+    "developing": 13.9,
+    "job_ready": 23.1
   },
-  "accuracy": 0.9195,
-  "precision": 0.9724,
-  "recall": 0.5301,
-  "f1": 0.6862,
-  "roc_auc": 0.9263,
-  "avg_precision": 0.7828,
-  "brier_score": 0.0611,
+  "accuracy": 0.9035,
+  "precision": 0.7725,
+  "recall": 0.5934,
+  "f1": 0.6712,
+  "roc_auc": 0.9251,
+  "avg_precision": 0.7578,
+  "brier_score": 0.0607,
   "baseline_accuracy": 0.834,
   "confusion_matrix": [
     [
-      1663,
-      5
+      1610,
+      58
     ],
     [
-      156,
-      176
+      135,
+      197
     ]
   ],
   "comparison": {
     "Logistic Regression": {
-      "cv_roc_auc_mean": 0.8771,
-      "cv_roc_auc_std": 0.0017
+      "cv_roc_auc_mean": 0.8981,
+      "cv_roc_auc_std": 0.0029,
+      "train_roc_auc": 0.8998,
+      "gap": 0.0017,
+      "selection_score": 0.8976,
+      "best_params": {
+        "degree": 2,
+        "C": 0.01
+      }
     },
     "Random Forest": {
-      "cv_roc_auc_mean": 0.9251,
-      "cv_roc_auc_std": 0.0025
+      "cv_roc_auc_mean": 0.9244,
+      "cv_roc_auc_std": 0.0027,
+      "train_roc_auc": 0.9766,
+      "gap": 0.0521,
+      "selection_score": 0.9114,
+      "best_params": {
+        "n_estimators": 500,
+        "min_samples_leaf": 10,
+        "max_features": "sqrt",
+        "max_depth": 10
+      }
     },
-    "Gradient Boosting": {
-      "cv_roc_auc_mean": 0.9221,
-      "cv_roc_auc_std": 0.003
+    "Gradient Boosting (monotonic)": {
+      "cv_roc_auc_mean": 0.9197,
+      "cv_roc_auc_std": 0.0043,
+      "train_roc_auc": 0.9257,
+      "gap": 0.006,
+      "selection_score": 0.9182,
+      "best_params": {
+        "min_samples_leaf": 20,
+        "max_iter": 100,
+        "max_depth": 3,
+        "learning_rate": 0.03,
+        "l2_regularization": 0.0
+      }
     }
   },
   "features": [
@@ -50,135 +77,64 @@
     "communication",
     "extracurricular"
   ],
+  "fit_check": {
+    "train_roc_auc": 0.9255,
+    "cv_roc_auc": 0.9197,
+    "test_roc_auc": 0.9251,
+    "gap": 0.0004,
+    "verdict": "Good fit check: training and held-out scores are reasonably close."
+  },
   "feature_importance": {
-    "cgpa_ratio": 0.1625,
-    "projects": 0.1138,
-    "internship": 0.0002,
-    "communication": 0.1523,
-    "extracurricular": 0.0022
+    "cgpa_ratio": 0.1799,
+    "projects": 0.1261,
+    "internship": 0.0,
+    "communication": 0.1219,
+    "extracurricular": 0.0
   },
   "roc_curve": {
     "fpr": [
       0.0,
       0.0,
-      0.0054,
-      0.018,
-      0.0216,
-      0.0258,
-      0.0336,
-      0.0408,
-      0.0444,
-      0.0558,
-      0.0576,
-      0.06,
-      0.0618,
-      0.0785,
-      0.0809,
-      0.0839,
-      0.0869,
-      0.0887,
-      0.0911,
-      0.1103,
-      0.1115,
-      0.1175,
-      0.1205,
-      0.1307,
-      0.1361,
-      0.1403,
-      0.1421,
-      0.1457,
-      0.1487,
-      0.1511,
-      0.1601,
-      0.1637,
-      0.1655,
-      0.1685,
-      0.1793,
-      0.1841,
-      0.1918,
-      0.1942,
-      0.196,
-      0.2068,
-      0.2098,
-      0.2122,
-      0.226,
-      0.2266,
-      0.2428,
-      0.2542,
-      0.2644,
-      0.2686,
-      0.2698,
-      0.2722,
-      0.283,
+      0.0,
+      0.0,
+      0.003,
+      0.0036,
+      0.0348,
+      0.1535,
+      0.2572,
+      0.2746,
+      0.2836,
+      0.2848,
       0.2866,
-      0.2902,
-      0.2914,
-      0.2932,
-      0.2938,
-      0.2986,
-      0.2992,
-      0.3034,
+      0.3076,
+      0.3082,
+      0.3094,
+      0.3094,
+      0.3124,
+      0.3129,
+      0.3135,
       1.0
     ],
     "tpr": [
       0.0,
+      0.5211,
       0.5271,
       0.5301,
-      0.5482,
-      0.5512,
-      0.5572,
-      0.5663,
-      0.5693,
-      0.5813,
-      0.6114,
-      0.6145,
-      0.6205,
-      0.6205,
-      0.6536,
-      0.6687,
-      0.6747,
-      0.6867,
-      0.6867,
-      0.6958,
-      0.7169,
-      0.7199,
-      0.7229,
-      0.7259,
-      0.7259,
-      0.7349,
-      0.738,
-      0.744,
-      0.747,
+      0.5301,
+      0.5301,
+      0.5934,
       0.75,
-      0.756,
-      0.7801,
-      0.7801,
-      0.7861,
-      0.7892,
-      0.7922,
-      0.8012,
-      0.8072,
-      0.8102,
-      0.8163,
-      0.8343,
-      0.8343,
-      0.8434,
-      0.8494,
-      0.8554,
-      0.8765,
-      0.9006,
-      0.9217,
-      0.9307,
-      0.9367,
-      0.9398,
-      0.9578,
-      0.9578,
-      0.9699,
+      0.9127,
+      0.9277,
+      0.9428,
+      0.9428,
+      0.9458,
       0.9759,
       0.9789,
-      0.988,
+      0.9789,
+      0.9849,
       0.994,
-      0.997,
+      0.994,
       1.0,
       1.0
     ]
@@ -186,31 +142,31 @@
   "calibration": {
     "predicted": [
       0.0,
-      0.1575,
-      0.2026,
-      0.246,
-      0.7984
+      0.1988,
+      0.2205,
+      0.2501,
+      0.9725
     ],
     "actual": [
       0.0,
-      0.2524,
-      0.2253,
-      0.244,
-      0.7611
+      0.2358,
+      0.2222,
+      0.2877,
+      0.967
     ]
   },
   "category_outcomes": {
     "Needs Improvement": {
-      "n": 1200,
-      "placed_rate": 0.0092
+      "n": 1149,
+      "placed_rate": 0.0017
     },
     "Developing": {
-      "n": 619,
-      "placed_rate": 0.2342
+      "n": 596,
+      "placed_rate": 0.2232
     },
     "Job Ready": {
-      "n": 181,
-      "placed_rate": 0.9724
+      "n": 255,
+      "placed_rate": 0.7725
     }
   }
 }

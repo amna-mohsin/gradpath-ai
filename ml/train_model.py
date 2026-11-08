@@ -1,17 +1,14 @@
-"""Train, tune, calibrate and evaluate the placement model.
+"""Train, tune, calibrate, and evaluate the placement-readiness model.
 
-Usage (from the project root):
-    python -m ml.train_model --data ml/data/placement.csv          # full run (tuning, ~2-5 min)
-    python -m ml.train_model --data ml/data/placement.csv --fast   # skip hyper-parameter search
-    pythopip install -r requirements.tpip install -r requirements.txtxtn -m ml.train_model --synthetic                           # practice data (clearly labelled)
+Usage from the project root:
+    python -m ml.train_model --data ml/data/placement.csv
+    python -m ml.train_model --data ml/data/placement.csv --fast
+    python -m ml.train_model --data ml/data/placement.csv --compare-features
+    python -m ml.train_model --synthetic
 
-What it does
- 1. Splits the data 80/20 (stratified). The 20% TEST set is never used for any decision.
- 2. Tunes Random Forest and Gradient Boosting with a randomised search (cross-validation on the training part).
- 3. Picks the best model by 5-fold cross-validated ROC-AUC.
- 4. CALIBRATES it so a prediction of 30% really means "about 30 in 100 such students were placed".
- 5. Chooses the decision threshold that maximises F1 (using out-of-fold predictions, not the test set).
- 6. Evaluates once on the untouched test set and saves metrics, curves and category outcomes.
+The training workflow keeps a stratified test split untouched while it tunes
+three candidate models, calibrates the selected model, and chooses a decision
+threshold using out-of-fold training predictions.
 """
 import argparse
 import json
@@ -22,16 +19,17 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV, calibration_curve
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import (GradientBoostingClassifier, HistGradientBoostingClassifier,
+                              RandomForestClassifier)
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, average_precision_score, brier_score_loss, confusion_matrix,
                              f1_score, precision_recall_curve, precision_score, recall_score,
                              roc_auc_score, roc_curve)
 from sklearn.model_selection import (RandomizedSearchCV, StratifiedKFold, cross_val_predict,
-                                     cross_val_score, train_test_split)
+                                     cross_val_score, cross_validate, train_test_split)
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 FEATURES = ["cgpa_ratio", "projects", "internship", "communication", "extracurricular"]
@@ -44,6 +42,7 @@ ALIASES = {
     "target": ["placement", "placed", "status"],
 }
 CATEGORIES = ["Needs Improvement", "Developing", "Job Ready"]
+OVERFIT_PENALTY = 0.25
 
 
 def _find(df, key):
@@ -94,10 +93,71 @@ def make_synthetic(n=3000, seed=42):
     return d
 
 
-def _search(pipe, grid, X, y, cv, n_iter=12):
-    """Tune a model pipeline by cross-validated ROC-AUC and return the winner."""
-    s = RandomizedSearchCV(pipe, grid, n_iter=n_iter, cv=3, scoring="roc_auc", random_state=42, n_jobs=-1)
-    return s.fit(X, y).best_estimator_
+def build_models():
+    """Return each candidate estimator with its regularized tuning search space."""
+    return {
+        "Logistic Regression": (
+            Pipeline([
+                ("scale", StandardScaler()),
+                ("poly", PolynomialFeatures(include_bias=False)),
+                ("scale2", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=5000, class_weight="balanced")),
+            ]),
+            {"poly__degree": [1, 2], "clf__C": [0.003, 0.01, 0.03, 0.1, 0.3, 1, 3, 10]},
+        ),
+        "Random Forest": (
+            Pipeline([
+                ("scale", StandardScaler()),
+                ("clf", RandomForestClassifier(class_weight="balanced", random_state=42, n_jobs=-1)),
+            ]),
+            {"clf__n_estimators": [200, 300, 500], "clf__max_depth": [4, 6, 8, 10],
+             "clf__min_samples_leaf": [3, 5, 10, 20], "clf__max_features": ["sqrt", 0.8]},
+        ),
+        "Gradient Boosting (monotonic)": (
+            Pipeline([
+                ("scale", StandardScaler()),
+                ("clf", HistGradientBoostingClassifier(
+                    monotonic_cst=[1] * len(FEATURES), random_state=42
+                )),
+            ]),
+            {"clf__max_iter": [100, 200, 300], "clf__learning_rate": [0.03, 0.05, 0.1],
+             "clf__max_depth": [2, 3, 4], "clf__min_samples_leaf": [20, 40, 80],
+             "clf__l2_regularization": [0.0, 0.1, 1.0]},
+        ),
+    }
+
+
+def _grid_size(grid):
+    """Return the number of possible parameter combinations in a search grid."""
+    return int(np.prod([len(values) for values in grid.values()]))
+
+
+def _fit_candidate(pipe, grid, X, y, cv, fast, iters):
+    """Fit one candidate and return its estimator and train/validation ROC-AUC."""
+    if fast:
+        scores = cross_validate(pipe, X, y, cv=cv, scoring="roc_auc",
+                                return_train_score=True, n_jobs=-1)
+        fitted = pipe.fit(X, y)
+        return (fitted, float(scores["test_score"].mean()), float(scores["test_score"].std()),
+                float(scores["train_score"].mean()), {})
+
+    search = RandomizedSearchCV(
+        pipe, grid, n_iter=min(iters, _grid_size(grid)), cv=cv, scoring="roc_auc",
+        random_state=42, n_jobs=-1, return_train_score=True,
+    )
+    search.fit(X, y)
+    best_index = search.best_index_
+    params = {
+        key.split("__")[-1]: value.item() if isinstance(value, np.generic) else value
+        for key, value in search.best_params_.items()
+    }
+    return (
+        search.best_estimator_,
+        float(search.cv_results_["mean_test_score"][best_index]),
+        float(search.cv_results_["std_test_score"][best_index]),
+        float(search.cv_results_["mean_train_score"][best_index]),
+        params,
+    )
 
 
 def _categorize(p_pct, dev, ready):
@@ -105,44 +165,58 @@ def _categorize(p_pct, dev, ready):
     return np.where(p_pct >= ready, "Job Ready", np.where(p_pct >= dev, "Developing", "Needs Improvement"))
 
 
-def train(data, source, fast=False):
+def fit_verdict(train_auc, test_auc):
+    """Describe train/test AUC patterns as a cautionary fit diagnostic."""
+    gap = train_auc - test_auc
+    if test_auc < 0.70:
+        return "Possible underfit: discrimination is weak on held-out data; review the data and features."
+    if gap > 0.08:
+        return "Possible overfit: training performance is notably higher than held-out performance."
+    return "Good fit check: training and held-out scores are reasonably close."
+
+
+def train(data, source, fast=False, iters=15):
     """Compare, calibrate, evaluate, and persist the placement model and metrics."""
+    if not fast and iters < 1:
+        raise ValueError("The number of tuning iterations must be at least 1.")
     X, y = data[FEATURES], data["target"]
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
     cv = StratifiedKFold(5, shuffle=True, random_state=42)
 
-    pipes = {
-        "Logistic Regression": Pipeline([("scale", StandardScaler()),
-                                         ("clf", LogisticRegression(max_iter=2000, class_weight="balanced"))]),
-        "Random Forest": Pipeline([("scale", StandardScaler()),
-                                   ("clf", RandomForestClassifier(n_estimators=300, max_depth=8, min_samples_leaf=3,
-                                                                  class_weight="balanced", random_state=42, n_jobs=-1))]),
-        "Gradient Boosting": Pipeline([("scale", StandardScaler()),
-                                       ("clf", GradientBoostingClassifier(random_state=42))]),
-    }
+    candidates = build_models()
     if not fast:
-        print("Tuning Random Forest and Gradient Boosting (this takes a few minutes)...")
-        pipes["Random Forest"] = _search(pipes["Random Forest"], {
-            "clf__n_estimators": [200, 300, 500], "clf__max_depth": [4, 6, 8, 12, None],
-            "clf__min_samples_leaf": [1, 3, 5, 10], "clf__max_features": ["sqrt", 0.8]}, X_tr, y_tr, cv)
-        pipes["Gradient Boosting"] = _search(pipes["Gradient Boosting"], {
-            "clf__n_estimators": [100, 200, 300], "clf__learning_rate": [0.03, 0.05, 0.1],
-            "clf__max_depth": [2, 3, 4], "clf__subsample": [0.7, 0.85, 1.0]}, X_tr, y_tr, cv)
+        print(f"Tuning all three models ({iters} settings per model, up to 5 folds each)...")
+    fitted, comparison = {}, {}
+    for name, (pipe, grid) in candidates.items():
+        estimator, validation_auc, validation_std, training_auc, params = _fit_candidate(
+            pipe, grid, X_tr, y_tr, cv, fast, iters
+        )
+        gap = max(training_auc - validation_auc, 0.0)
+        comparison[name] = {
+            "cv_roc_auc_mean": round(validation_auc, 4),
+            "cv_roc_auc_std": round(validation_std, 4),
+            "train_roc_auc": round(training_auc, 4),
+            "gap": round(gap, 4),
+            "selection_score": round(validation_auc - OVERFIT_PENALTY * gap, 4),
+            "best_params": params,
+        }
+        fitted[name] = estimator
 
-    comparison = {}
-    for name, pipe in pipes.items():
-        sc = cross_val_score(pipe, X_tr, y_tr, cv=cv, scoring="roc_auc")
-        comparison[name] = {"cv_roc_auc_mean": round(float(sc.mean()), 4), "cv_roc_auc_std": round(float(sc.std()), 4)}
-        print(f"{name:20s} CV ROC-AUC = {sc.mean():.3f} +/- {sc.std():.3f}")
-    best = max(comparison, key=lambda k: comparison[k]["cv_roc_auc_mean"])
-    best_pipe = pipes[best]
+    print(f"\n{'Model':20s} {'Train AUC':>10s} {'Valid AUC':>10s} {'Gap':>7s} {'Score':>7s}")
+    for name, result in comparison.items():
+        print(f"{name:20s} {result['train_roc_auc']:10.3f} {result['cv_roc_auc_mean']:10.3f} "
+              f"{result['gap']:7.3f} {result['selection_score']:7.3f}   {result['best_params']}")
+    best = max(comparison, key=lambda name: comparison[name]["selection_score"])
+    best_pipe = fitted[best]
 
     # Out-of-fold calibrated probabilities on the TRAINING data -> choose the decision threshold
     oof = cross_val_predict(CalibratedClassifierCV(clone(best_pipe), method="isotonic", cv=3),
                             X_tr, y_tr, cv=cv, method="predict_proba")[:, 1]
     prec, rec, thr = precision_recall_curve(y_tr, oof)
     f1s = 2 * prec[:-1] * rec[:-1] / np.clip(prec[:-1] + rec[:-1], 1e-9, None)
-    t_best = float(thr[int(np.argmax(f1s))])
+    # Prefer the lowest threshold within 1% of the best F1 to avoid an unstable extreme cutoff.
+    near_best = np.flatnonzero(f1s >= 0.99 * f1s.max())
+    t_best = float(thr[near_best[0]])
 
     model = CalibratedClassifierCV(clone(best_pipe), method="isotonic", cv=5).fit(X_tr, y_tr)
     proba = model.predict_proba(X_te)[:, 1]
@@ -157,12 +231,23 @@ def train(data, source, fast=False):
         mask = cats == c
         outcomes[c] = {"n": int(mask.sum()), "placed_rate": round(float(y_te[mask].mean()), 4) if mask.sum() else None}
 
+    train_auc = roc_auc_score(y_tr, model.predict_proba(X_tr)[:, 1])
+    test_auc = roc_auc_score(y_te, proba)
+    fit_check = {
+        "train_roc_auc": round(float(train_auc), 4),
+        "cv_roc_auc": comparison[best]["cv_roc_auc_mean"],
+        "test_roc_auc": round(float(test_auc), 4),
+        "gap": round(float(train_auc - test_auc), 4),
+    }
+    fit_check["verdict"] = fit_verdict(fit_check["train_roc_auc"], fit_check["test_roc_auc"])
+
     imp = permutation_importance(model, X_te, y_te, scoring="roc_auc", n_repeats=10, random_state=42)
     fpr, tpr, _ = roc_curve(y_te, proba)
     keep = np.unique(np.linspace(0, len(fpr) - 1, 60).astype(int))
     frac_pos, mean_pred = calibration_curve(y_te, proba, n_bins=8, strategy="quantile")
 
     metrics = {
+        "trainer_version": 2,
         "model_name": best, "data_source": source, "n_rows": int(len(data)), "n_train": int(len(X_tr)),
         "n_test": int(len(X_te)), "placement_rate": round(base_rate, 4), "tuned": not fast,
         "decision_threshold": round(t_best, 4), "thresholds": {"developing": dev, "job_ready": ready},
@@ -172,6 +257,7 @@ def train(data, source, fast=False):
         "brier_score": round(brier_score_loss(y_te, proba), 4),
         "baseline_accuracy": round(1 - float(y_te.mean()), 4),
         "confusion_matrix": confusion_matrix(y_te, pred).tolist(), "comparison": comparison, "features": FEATURES,
+        "fit_check": fit_check,
         "feature_importance": {f: round(float(v), 4) for f, v in zip(FEATURES, imp.importances_mean)},
         "roc_curve": {"fpr": [round(float(x), 4) for x in fpr[keep]], "tpr": [round(float(x), 4) for x in tpr[keep]]},
         "calibration": {"predicted": [round(float(x), 4) for x in mean_pred], "actual": [round(float(x), 4) for x in frac_pos]},
@@ -182,6 +268,9 @@ def train(data, source, fast=False):
     (ARTIFACT_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2))
 
     print(f"\nBest model: {best} (calibrated) | decision threshold {t_best:.2f}")
+    print(f"FIT CHECK -> train AUC {fit_check['train_roc_auc']:.3f} | validation AUC {fit_check['cv_roc_auc']:.3f} | "
+          f"test AUC {fit_check['test_roc_auc']:.3f} | gap {fit_check['gap']:.3f}")
+    print("           ", fit_check["verdict"])
     print(f"TEST SET -> accuracy {metrics['accuracy']:.3f} (always-'No' baseline {metrics['baseline_accuracy']:.3f}) | "
           f"precision {metrics['precision']:.3f} | recall {metrics['recall']:.3f} | F1 {metrics['f1']:.3f} | "
           f"ROC-AUC {metrics['roc_auc']:.3f} | Brier {metrics['brier_score']:.3f}")
@@ -190,15 +279,71 @@ def train(data, source, fast=False):
     return metrics
 
 
+def compare_feature_sets(path):
+    """Compare selected optional numeric CSV fields without changing model inputs."""
+    raw = pd.read_csv(path)
+    base = load_kaggle(path)
+    normalized_columns = {column.strip().lower().replace(" ", "_"): column for column in raw.columns}
+    optional_features = {
+        "Previous semester result": "prev_sem_result",
+        "Academic performance": "academic_performance",
+        "IQ (diagnostic only)": "iq",
+    }
+    X_base, y = base[FEATURES], base["target"]
+    cv = StratifiedKFold(5, shuffle=True, random_state=42)
+    estimator = GradientBoostingClassifier(
+        n_estimators=150, max_depth=3, learning_rate=0.1, subsample=0.85, random_state=42
+    )
+
+    baseline = cross_val_score(estimator, X_base, y, cv=cv, scoring="roc_auc", n_jobs=-1)
+    print("\nFeature-set comparison (same Gradient Boosting estimator, 5-fold ROC-AUC):")
+    print(f"  {'Current five features':45s} {baseline.mean():.3f} +/- {baseline.std():.3f}")
+
+    available = {}
+    for label, normalized_name in optional_features.items():
+        column_name = normalized_columns.get(normalized_name)
+        if column_name is not None:
+            values = pd.to_numeric(raw.loc[base.index, column_name], errors="coerce")
+            if values.notna().all():
+                available[label] = values
+            else:
+                print(f"  Skipped {label}: values are missing or non-numeric.")
+    for label, values in available.items():
+        scores = cross_val_score(
+            estimator, X_base.assign(**{label: values}), y, cv=cv, scoring="roc_auc", n_jobs=-1
+        )
+        print(f"  {'Current features + ' + label:45s} {scores.mean():.3f} +/- {scores.std():.3f}")
+
+    combined = [label for label in available if label != "IQ (diagnostic only)"]
+    if combined:
+        combined_features = {label: available[label] for label in combined}
+        scores = cross_val_score(
+            estimator, X_base.assign(**combined_features), y, cv=cv, scoring="roc_auc", n_jobs=-1
+        )
+        print(f"  {'Current features + all non-IQ extras':45s} {scores.mean():.3f} +/- {scores.std():.3f}")
+    print("\nThis is a diagnostic comparison, not proof that a feature is appropriate or causal.")
+    print("Review data leakage, fairness, and whether a feature is available and appropriate at prediction time.")
+    if "IQ (diagnostic only)" in available:
+        print("IQ is sensitive personal data. Do not collect or use it for student placement decisions.")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", help="Path to the Kaggle CSV")
     ap.add_argument("--synthetic", action="store_true", help="Use generated practice data")
     ap.add_argument("--fast", action="store_true", help="Skip hyper-parameter search")
+    ap.add_argument("--iters", type=int, default=15, help="Settings tried per model during tuning (default: 15)")
+    ap.add_argument("--compare-features", action="store_true",
+                    help="Check whether selected optional CSV columns add cross-validated signal")
     args = ap.parse_args()
-    if args.data:
-        train(load_kaggle(args.data), source=f"Kaggle CSV ({Path(args.data).name})", fast=args.fast)
+    if args.compare_features:
+        if not args.data:
+            ap.error("--compare-features requires --data PATH")
+        compare_feature_sets(args.data)
+    elif args.data:
+        train(load_kaggle(args.data), source=f"Kaggle CSV ({Path(args.data).name})",
+              fast=args.fast, iters=args.iters)
     elif args.synthetic:
-        train(make_synthetic(), source="synthetic", fast=args.fast)
+        train(make_synthetic(), source="synthetic", fast=args.fast, iters=args.iters)
     else:
         ap.error("Provide --data PATH or --synthetic")
