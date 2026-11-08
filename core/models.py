@@ -3,7 +3,9 @@
 OOAD notes
 - Inheritance : Student and CareerOfficer inherit from User (joined-table inheritance).
 - Composition : Student -> CareerGoal -> GoalTask (children are deleted with their parent).
-- Association : Student 1..* PlacementPrediction, Job *..1 CareerOfficer (creator).
+- Aggregation : CareerOfficer o-- Job (jobs survive if the officer is removed).
+- Association : JobApplication is the association class between Student and Job;
+                Student 1..* PlacementPrediction.
 """
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -131,6 +133,13 @@ class CareerOfficer(User):
     id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     office: Mapped[str] = mapped_column(String(120), default="University Career Office")
 
+    # AGGREGATION: an officer has jobs, but jobs can exist without the officer (no cascade delete).
+    # foreign() maps the existing jobs.created_by column, so no database migration is needed.
+    jobs: Mapped[List["Job"]] = relationship(
+        primaryjoin="CareerOfficer.id == foreign(Job.created_by)",
+        back_populates="creator", lazy="select",
+    )
+
     __mapper_args__ = {"polymorphic_identity": "officer"}
 
     def display_role(self) -> str:
@@ -168,6 +177,10 @@ class Job(Base):
 
     applications: Mapped[List["JobApplication"]] = relationship(
         back_populates="job", cascade="all, delete-orphan", lazy="select")
+    creator: Mapped[Optional["CareerOfficer"]] = relationship(
+        primaryjoin="foreign(Job.created_by) == CareerOfficer.id",
+        back_populates="jobs", lazy="joined",
+    )
 
     def skill_list(self) -> List[str]:
         """Return required job skills as a normalized list."""
@@ -270,5 +283,8 @@ class Message(Base):
     recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     body: Mapped[str] = mapped_column(Text)
+    # Optional link to the job a message is about (maps the existing job_id column; no migration).
+    job: Mapped[Optional["Job"]] = relationship(
+        primaryjoin="foreign(Message.job_id) == Job.id", lazy="select", viewonly=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

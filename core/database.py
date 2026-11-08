@@ -9,6 +9,7 @@ from core.config import database_url
 from core.models import Base
 
 
+# SINGLETON PATTERN: st.cache_resource creates the engine once and every caller shares that one instance.
 @st.cache_resource(show_spinner=False)
 def get_engine():
     """Create the cached SQLAlchemy engine with SQLite- or PostgreSQL-specific options."""

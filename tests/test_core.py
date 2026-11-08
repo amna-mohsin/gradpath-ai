@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from core.models import Base, Job
+from core.models import Base, CareerOfficer, Job
 from core.repositories import JobRepository
 from core.validators import (check_email, check_name, check_password, check_phone, check_url)
 from ml.train_model import build_models, fit_verdict
@@ -137,6 +137,32 @@ def test_job_listing_changes_are_limited_to_owner_and_non_demo_listings():
 
     with pytest.raises(ValueError, match="unsupported fields"):
         JobService.update(1, {"created_by": 11}, 11)
+
+
+def test_officer_job_aggregation():
+    """An officer aggregates jobs; deleting the officer leaves the jobs in place."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        officer = CareerOfficer(email="officer@test.dev", name="Test Officer", password_hash="x")
+        session.add(officer)
+        session.flush()
+        job = Job(title="Aggregated listing", company="Company A", category="Technology",
+                  level="Entry Level", created_by=officer.id)
+        session.add(job)
+        session.flush()
+        session.expire_all()
+
+        job = session.get(Job, job.id)
+        officer = session.get(CareerOfficer, officer.id)
+        assert job.creator.id == officer.id
+        assert job in officer.jobs
+
+        job_id = job.id
+        session.delete(officer)
+        session.flush()
+        session.expire_all()
+        assert session.get(Job, job_id) is not None
 
 
 def test_groq_chatbot_uses_groq_api_and_model(monkeypatch):
