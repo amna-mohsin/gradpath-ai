@@ -2,6 +2,7 @@
 
 STRATEGY PATTERN : ChatStrategy -> RuleBasedBot | LLMBot (Groq / Gemini / OpenAI / Anthropic via REST)
 FACTORY PATTERN  : ChatbotFactory picks the strategy from CHATBOT_PROVIDER and falls back to rules.
+FACADE PATTERN   : LLMBot hides four different provider APIs behind one reply() method.
 
 Safety notes
 - API keys are read from secrets only and sent in HTTP headers (never in the URL or on screen).
