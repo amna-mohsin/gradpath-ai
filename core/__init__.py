@@ -1,0 +1,1 @@
+"""Core application configuration, database models, and persistence helpers."""

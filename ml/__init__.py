@@ -1,0 +1,1 @@
+"""Training utilities and saved placement-model artifacts."""

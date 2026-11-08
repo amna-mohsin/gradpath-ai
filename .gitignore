@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.streamlit/secrets.toml
+gradpath_local.db
+*.db
+.DS_Store
+# Keep the trained model + metrics so Streamlit Cloud can load them:
+!ml/artifacts/placement_model.joblib
+!ml/artifacts/metrics.json
+# Raw Kaggle CSV is not committed (check the dataset licence first):
+ml/data/*.csv

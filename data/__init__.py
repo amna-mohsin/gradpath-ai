@@ -1,0 +1,1 @@
+"""Static career guidance and fictional records used by GradPath AI."""
