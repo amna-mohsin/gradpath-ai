@@ -1,5 +1,13 @@
 """GradPath AI - entry point. Run with:  streamlit run app.py"""
-import extra_streamlit_components as stx
+import os
+
+# Must run before numpy/scikit-learn are imported. Shared hosts (e.g. Streamlit Cloud) report many CPU
+# cores but only grant one or two; the model's parallel threads then fight each other and every
+# single-row prediction becomes very slow. One thread is fastest for one-student predictions.
+for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_var, "1")
+
+import extra_streamlit_components as stx  # noqa: E402
 import streamlit as st
 
 st.set_page_config(page_title="GradPath AI", page_icon=":material/school:", layout="wide",

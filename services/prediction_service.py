@@ -142,6 +142,18 @@ def load_artifact() -> Optional[dict]:
         return None
 
 
+@lru_cache(maxsize=4096)
+def _ml_probability(values: tuple) -> float:
+    """Return the model's placement probability for one feature tuple, cached.
+
+    The readiness page asks the model about ~10 profiles (baseline + what-if levers) on every rerun;
+    identical inputs always give identical outputs, so each profile is only scored once per process.
+    """
+    artifact = load_artifact()
+    X = pd.DataFrame([values], columns=artifact["features"])
+    return float(artifact["pipeline"].predict_proba(X)[0][1])
+
+
 def load_metrics() -> Optional[dict]:
     """Read model evaluation metrics from the local artifact directory."""
     if METRICS_PATH.exists():
@@ -167,8 +179,8 @@ class MLModelStrategy(PredictionStrategy):
 
     def predict(self, student: Student) -> PredictionResult:
         """Predict a bounded placement probability and explain the model's context."""
-        X = pd.DataFrame([features_from_student(student)])[self.features]
-        prob = float(self.pipeline.predict_proba(X)[0][1]) * 100
+        feats = features_from_student(student)
+        prob = _ml_probability(tuple(feats[f] for f in self.features)) * 100
         prob = min(max(prob, 1.0), 99.0)  # never show an absolute 0% or 100%
         auc = self.meta.get("roc_auc")
         src = self.meta.get("data_source", "training data")
