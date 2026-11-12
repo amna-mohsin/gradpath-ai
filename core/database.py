@@ -16,8 +16,11 @@ def get_engine():
     url = database_url()
     if url.startswith("sqlite"):
         return create_engine(url, connect_args={"check_same_thread": False})
-    # pool_pre_ping + pool_recycle handle Neon's auto-suspend (idle connections get dropped)
-    return create_engine(url, pool_pre_ping=True, pool_recycle=240, pool_size=3, max_overflow=2)
+    # pool_pre_ping + pool_recycle handle Neon's auto-suspend (idle connections get dropped).
+    # connect_timeout / pool_timeout make a sleeping or overloaded database fail fast with a clear
+    # message instead of freezing the page for 30+ seconds; the larger pool serves several users at once.
+    return create_engine(url, pool_pre_ping=True, pool_recycle=240, pool_size=5, max_overflow=5,
+                         pool_timeout=15, connect_args={"connect_timeout": 15})
 
 
 @st.cache_resource(show_spinner=False)

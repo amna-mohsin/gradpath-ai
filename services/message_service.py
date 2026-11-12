@@ -1,10 +1,22 @@
 """Direct messaging between students and career officers."""
 from typing import Dict, List, Tuple
 
+import streamlit as st
+
 from core.database import session_scope
 from core.models import Message, User
 from core.repositories import MessageRepository, UserRepository
 from core.validators import check_text
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _contacts_for_role(role: str) -> Dict[int, str]:
+    """Contact list for one side, cached for a minute (the chat refreshes every few seconds)."""
+    with session_scope() as s:
+        repo = UserRepository(s)
+        if role == "officer":
+            return {stu.id: f"{stu.name} ({stu.department or 'Student'})" for stu in repo.registered_students()}
+        return {o.id: f"{o.name} - {o.office}" for o in repo.officers()}
 
 
 class MessageService:
@@ -13,11 +25,7 @@ class MessageService:
     @staticmethod
     def contacts(user: User) -> Dict[int, str]:
         """List eligible contacts on the opposite side (students or officers)."""
-        with session_scope() as s:
-            repo = UserRepository(s)
-            if user.role == "officer":
-                return {st.id: f"{st.name} ({st.department or 'Student'})" for st in repo.registered_students()}
-            return {o.id: f"{o.name} - {o.office}" for o in repo.officers()}
+        return _contacts_for_role(user.role)
 
     @staticmethod
     def send(sender: User, recipient_id: int, body: str, job_id: int = None) -> Tuple[bool, str]:
@@ -45,9 +53,10 @@ class MessageService:
                 latest[other] = m
                 if m.recipient_id == user_id and not m.is_read:
                     unread[other] = unread.get(other, 0) + 1
+            partners = {u.id: u for u in users.by_ids(latest)}  # one query instead of one per conversation
             out = []
             for other, m in latest.items():
-                u = users.get(other)
+                u = partners.get(other)
                 if u:
                     out.append({"partner_id": other, "name": u.name, "role": u.display_role(),
                                 "last": m.body[:60], "time": m.created_at, "unread": unread.get(other, 0)})

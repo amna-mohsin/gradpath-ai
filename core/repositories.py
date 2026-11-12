@@ -49,6 +49,11 @@ class UserRepository(BaseRepository[User]):
         """Find an account by email without regard to letter case."""
         return self.s.scalar(select(User).where(func.lower(User.email) == email.strip().lower()))
 
+    def by_ids(self, ids) -> List[User]:
+        """Load several accounts in a single query."""
+        ids = list(ids)
+        return list(self.s.scalars(select(User).where(User.id.in_(ids)))) if ids else []
+
     def officers(self) -> List[CareerOfficer]:
         """Return career officers ordered by name."""
         return list(self.s.scalars(select(CareerOfficer).order_by(CareerOfficer.name)))
@@ -218,6 +223,14 @@ class ApplicationRepository(BaseRepository[JobApplication]):
         q = (select(JobApplication).where(JobApplication.student_id == student_id)
              .order_by(JobApplication.created_at.desc()))
         return list(self.s.scalars(q))
+
+    def job_ids_for_student(self, student_id: int) -> set:
+        """Return only the job IDs a student has applied to (no application rows loaded)."""
+        return set(self.s.scalars(select(JobApplication.job_id).where(JobApplication.student_id == student_id)))
+
+    def resume_pdf(self, app_id: int) -> Optional[bytes]:
+        """Fetch one application's resume PDF bytes on demand."""
+        return self.s.scalar(select(JobApplication.resume_pdf).where(JobApplication.id == app_id))
 
     def find(self, job_id: int, student_id: int) -> Optional[JobApplication]:
         """Find the unique application for a student and job pair."""

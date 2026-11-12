@@ -8,7 +8,8 @@ for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_var, "1")
 
 import extra_streamlit_components as stx  # noqa: E402
-import streamlit as st
+import streamlit as st  # noqa: E402
+from sqlalchemy.exc import OperationalError  # noqa: E402
 
 st.set_page_config(page_title="GradPath AI", page_icon=":material/school:", layout="wide",
                    initial_sidebar_state="expanded")
@@ -54,7 +55,27 @@ def _guarded(render_fn, role: str = "", allow_onboarding: bool = False):
             _show_home(user)
         else:
             render_fn()
-    return run
+
+    def safe_run():
+        """Show a friendly, recoverable message instead of a raw traceback when a page fails.
+
+        st.stop / st.rerun / st.switch_page raise BaseException subclasses, so they pass through untouched.
+        """
+        try:
+            run()
+        except OperationalError as exc:
+            st.warning("The database is waking up or briefly unavailable. Please try again in a few seconds.")
+            if st.button("Try again", type="primary", key="db_retry"):
+                st.rerun()
+            with st.expander("Technical details"):
+                st.code(f"{type(exc).__name__}: {exc}")
+        except Exception as exc:  # noqa: BLE001 - last-resort page boundary
+            st.error("Something went wrong while loading this page. Your data is safe; please try again.")
+            if st.button("Reload page", key="page_retry"):
+                st.rerun()
+            with st.expander("Technical details"):
+                st.exception(exc)
+    return safe_run
 
 
 def _profile():

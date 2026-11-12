@@ -1,5 +1,5 @@
 """Job applications: validation, fit scoring and officer-side ranking."""
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from core.database import session_scope
 from core.models import ActivityLog, Job, JobApplication, Student
@@ -102,7 +102,14 @@ class ApplicationService:
     @staticmethod
     def applied_job_ids(student_id: int) -> set:
         """Return the job IDs to which the student has already applied."""
-        return {a.job_id for a in ApplicationService.for_student(student_id)}
+        with session_scope() as s:
+            return ApplicationRepository(s).job_ids_for_student(student_id)
+
+    @staticmethod
+    def resume_pdf(app_id: int) -> Optional[bytes]:
+        """Return one application's resume PDF, loaded only when an officer asks for it."""
+        with session_scope() as s:
+            return ApplicationRepository(s).resume_pdf(app_id)
 
     @staticmethod
     def counts() -> dict:

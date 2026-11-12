@@ -261,7 +261,8 @@ class JobApplication(Base):
     availability: Mapped[str] = mapped_column(String(60), default="")
     cover_note: Mapped[str] = mapped_column(Text, default="")
     resume_text: Mapped[str] = mapped_column(Text, default="")
-    resume_pdf: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    # deferred: the PDF bytes are only fetched when explicitly requested, not with every application list
+    resume_pdf: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True, deferred=True)
     skill_match: Mapped[int] = mapped_column(Integer, default=0)
     resume_match: Mapped[int] = mapped_column(Integer, default=0)
     readiness_category: Mapped[str] = mapped_column(String(40), default="")

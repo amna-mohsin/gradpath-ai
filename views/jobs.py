@@ -80,7 +80,7 @@ def _openings(stu):
                 st.write("**Skills you still need:** " + (", ".join(missing) if missing else "none - you cover all listed skills."))
 
 
-@st.fragment(run_every="5s")
+@st.fragment(run_every="20s")
 def _my_applications(student_id: int):
     """Render the student's latest application statuses and fit details."""
     apps = ApplicationService.for_student(student_id)

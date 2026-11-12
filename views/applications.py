@@ -56,12 +56,15 @@ def render():
             st.markdown("**Cover note**")
             st.write(a.cover_note)
             st.markdown("**Resume PDF**")
-            if a.resume_pdf:
-                st.pdf(a.resume_pdf)
-                st.download_button("Download resume PDF", a.resume_pdf, f"{s.name.replace(' ', '_')}_resume.pdf",
-                                   "application/pdf", key=f"resume_pdf_{a.id}")
-            else:
-                st.caption("A PDF file is not available for this application.")
+            # Load the PDF only when asked: fetching and rendering every applicant's PDF made this page slow.
+            if st.toggle("Show resume PDF", key=f"show_pdf_{a.id}"):
+                pdf = ApplicationService.resume_pdf(a.id)
+                if pdf:
+                    st.pdf(pdf)
+                    st.download_button("Download resume PDF", pdf, f"{s.name.replace(' ', '_')}_resume.pdf",
+                                       "application/pdf", key=f"resume_pdf_{a.id}")
+                else:
+                    st.caption("A PDF file is not available for this application.")
             c1, c2, c3 = st.columns([2, 1, 1.4], vertical_alignment="bottom")
             new = c1.selectbox("Update status", STATUSES, index=STATUSES.index(a.status) if a.status in STATUSES else 0, key=f"st_{a.id}")
             if c2.button("Save status", key=f"sv_{a.id}", type="primary"):
