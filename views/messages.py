@@ -14,7 +14,9 @@ def render():
     _render_messages(user.id, officer)
 
 
-@st.fragment(run_every="5s")
+# Streamlit cannot push new messages, so the chat polls. 15s keeps it fresh without the page
+# visibly dimming/redrawing every few seconds; the Refresh button fetches immediately.
+@st.fragment(run_every="15s")
 def _render_messages(user_id: int, officer: bool):
     """Render conversation selection, message history, and the send form."""
     user = get_user()
@@ -61,7 +63,11 @@ def _render_messages(user_id: int, officer: bool):
             return
         name = labels[active]["name"] if active in labels else contacts.get(active, "Conversation").split(" (")[0].split(" - ")[0]
         role = labels[active]["role"] if active in labels else ("Student" if officer else "Career Officer")
-        html(f'<div class="gp-row" style="margin-bottom:.4rem"><b style="font-size:1.1rem">{esc(name)}</b>{badge(role, "violet" if role != "Student" else "info")}</div>')
+        head, refresh = st.columns([5, 1], vertical_alignment="center")
+        with head:
+            html(f'<div class="gp-row" style="margin-bottom:.4rem"><b style="font-size:1.1rem">{esc(name)}</b>{badge(role, "violet" if role != "Student" else "info")}</div>')
+        # Clicking a button inside a fragment reruns only the fragment, i.e. reloads the chat now.
+        refresh.button("Refresh", icon=":material/refresh:", key="msg_refresh", help="Check for new messages now")
         thread = MessageService.thread(user_id, active)
         with st.container(height=380, border=True):
             if not thread:
